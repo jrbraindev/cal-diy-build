@@ -1,0 +1,31 @@
+# syntax=docker/dockerfile:1.7
+# EXPERIMENTAL: read README.runtime-poc.md before running.
+# This image bypasses the original start.sh and DOES NOT run Prisma migrations or seeding.
+# Pin to the exact image currently deployed; no upstream main branch is fetched.
+ARG SOURCE_IMAGE=ghcr.io/jrbraindev/cal-diy-build@sha256:5363d22370d54df956d92e78fa0261744a386907f2dd5628aefcaf8964dba5fc
+FROM ${SOURCE_IMAGE} AS existing
+
+FROM node:20-bookworm-slim AS runtime
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /calcom
+ENV NODE_ENV=production \
+    PORT=3000 \
+    HOSTNAME=0.0.0.0 \
+    NEXT_TELEMETRY_DISABLED=1
+
+# Standalone already contains the traced runtime Node modules.
+COPY --from=existing --chown=node:node /calcom/apps/web/.next/standalone/ /calcom/
+COPY --from=existing --chown=node:node /calcom/apps/web/.next/static/ /calcom/apps/web/.next/static/
+COPY --from=existing --chown=node:node /calcom/apps/web/public/ /calcom/apps/web/public/
+
+RUN test -f /calcom/apps/web/server.js \
+    && test -d /calcom/apps/web/.next/static \
+    && test -d /calcom/apps/web/public
+
+USER node
+EXPOSE 3000
+CMD ["node", "apps/web/server.js"]
